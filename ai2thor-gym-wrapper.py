@@ -8,12 +8,6 @@ from gym import spaces
 from gym.utils import seeding
 from ai2thor.controller import Controller
 
-controller = Controller(scene="FloorPlan10")
-event = controller.step(action="RotateRight")
-metadata = event.metadata
-print(event.metadata["objects"])
-print(type(event.metadata["objects"]))
-
 
 class AI2ThorBaseEnv(gym.Env):
     def __init__(
@@ -26,7 +20,7 @@ class AI2ThorBaseEnv(gym.Env):
     ) -> None:
         super().__init__()
         self._image_size = img_size
-        self.controller = Controller(scene=scene)
+        self.controller = Controller(scene=scene, width=900, height=900)
         self.action_names = action_names
         self.seed(seed)
         self._step = 0
@@ -53,10 +47,9 @@ class AI2ThorBaseEnv(gym.Env):
         Args:
             metadata (Dict): Dictionary of metadata returned by env.
         """
-
-        new_x = metadata["agent"]["x"]
-        new_y = metadata["agent"]["y"]
-        new_z = metadata["agent"]["z"]
+        new_x = metadata["agent"]["position"]["x"]
+        new_y = metadata["agent"]["position"]["y"]
+        new_z = metadata["agent"]["position"]["z"]
 
         self.agent_position = (new_x, new_y, new_z)
 
@@ -157,19 +150,58 @@ class AI2ThorBaseEnv(gym.Env):
         action_index = np.argmax(action)
 
         action_name = self.action_names[action_index]
-
+        no_op = False
         if (
             "Object" in action_name
             and "Held" not in action_name
             and "Drop" not in action_name
         ):
-            pass
+            if action_name == "PickupObject":
+                no_op = self.closest_graspable_object == None
+                if not no_op:
+                    event = self.controller.step(
+                        action=action_name, objectId=self.closest_graspable_object
+                    )
+            elif action_name == "PutObject":
+                no_op = self.closest_receptacle == None
+                if not no_op:
+                    event = self.controller.step(
+                        action=action_name, objectId=self.closest_receptacle
+                    )
+            elif action_name == "OpenObject" or action_name == "CloseObject":
+                no_op = self.closest_openable_object == None
+                if not no_op:
+                    event = self.controller.step(
+                        action=action_name, objectId=self.closest_openable_object
+                    )
+            elif action_name == "BreakObject":
+                no_op = self.closest_breakable_object == None
+                if not no_op:
+                    event = self.controller.step(
+                        action=action_name, objectId=self.closest_breakable_object
+                    )
+            elif action_name == "SliceObject":
+                no_op = self.closest_sliceable_object == None
+                if not no_op:
+                    event = self.controller.step(
+                        action=action_name, objectId=self.closest_sliceable_object
+                    )
+            elif "Toggle" in action_name:
+                no_op = self.closest_toggleable_object == None
+                if not no_op:
+                    event = self.controller.step(
+                        action=action_name, objectId=self.closest_toggleable_object
+                    )
         elif "Held" in action_name:
             event = self.controller.step(
                 action=action_name, moveMagnitude=self.move_magnitude
             )
         else:
             event = self.controller.step(action=action_name)
+
+        if no_op:
+            # Done does nothing to the state of the environment
+            event = self.controller.step(action="Done")
 
         self.update_agent_position(event.metadata)
         self.set_closest_objects(event.metadata)
@@ -194,7 +226,7 @@ class AI2ThorBaseEnv(gym.Env):
         return False
 
     def filter_metadata(self, metadata) -> Dict:
-        return {}
+        return metadata
 
     def process_obs(self, event, is_first: bool = False, done: bool = False) -> Dict:
         return {}
@@ -274,6 +306,7 @@ class CookEggEnv(AI2ThorBaseEnv):
         self.egg_picked_up = False
         self.egg_cracked = False
         self.microwave_opened = False
+        self.microwave_opened_finished = False
         self.microwave_on = False
         self.egg_cracked_picked_up = False
         self.egg_cooked = False
@@ -281,22 +314,115 @@ class CookEggEnv(AI2ThorBaseEnv):
         self.egg_in_pan = False
         self.egg_in_pot = False
         self.pan_on_stove = False
+        self.pot_on_stove = False
         self.stove_on = False
 
     def is_terminated(self, event) -> bool:
         # Should return terminated if the agent is holding a cooked egg.
+        for object_meta in event.metadata["objects"]:
+            if object_meta["objectType"] == "EggCracked":
+                if object_meta["isCooked"] and object_meta["isPickedUp"]:
+                    return True
         return False
+
+    def compute_reward(self, event) -> float:
+        reward = -1.0
+        for object_meta in event.metadata["objects"]:
+            # Agent must see the object to get the reward
+            if not object_meta["visible"]:
+                continue
+            if object_meta["objectType"] == "Fridge":
+                if object_meta["isOpen"] and not self.fridge_opened:
+                    reward += 1.0
+                    self.fridge_opened = True
+            if object_meta["objectType"] == "Microwave":
+                if object_meta["isOpen"] and not self.microwave_opened:
+                    reward += 1.0
+                    self.microwave_opened = True
+                elif (
+                    not object_meta["isOpen"]
+                    and not self.microwave_opened_finished
+                    and self.microwave_on
+                ):
+                    reward += 1.0
+                    self.microwave_opened_finished = True
+                elif object_meta["isToggled"] and not self.microwave_on:
+                    # Check if there is a cracked egg in the microwave
+                    for obj in object_meta["receptacleObjectIds"]:
+                        if "EggCracked" in obj:
+                            for obj_to_check_meta in event.metadata["objects"]:
+                                if obj_to_check_meta["objectId"] == obj:
+                                    reward += 5.0
+                                    self.microwave_on = True
+                                    break
+            if object_meta["objectType"] == "Pan" or object_meta["objectType"] == "Pot":
+                if not self.stove_on:
+                    egg_curently_in_pot_pan = False
+                    # Check if there is a cracked egg in the pot/pan
+                    for obj in object_meta["receptacleObjectIds"]:
+                        if "EggCracked" in obj:
+                            for obj_to_check_meta in event.metadata["objects"]:
+                                if obj_to_check_meta["objectId"] == obj:
+                                    if not self.egg_in_pan and not self.egg_in_pot:
+                                        reward += 1.0
+                                    if object_meta["objectType"] == "Pan":
+                                        self.egg_in_pan = True
+                                    else:
+                                        self.egg_in_pot = True
+                                    egg_curently_in_pot_pan = True
+                                    break
+                    if egg_curently_in_pot_pan:
+                        for parent in object_meta["parentReceptacles"]:
+                            if "StoveBurner" in parent:
+                                if not self.pan_on_stove and not self.pot_on_stove:
+                                    reward += 5.0
+                                    if object_meta["objectType"] == "Pan":
+                                        self.pan_on_stove = True
+                                    else:
+                                        self.pot_on_stove = True
+                                if not self.stove_on:
+                                    for obj_to_check_meta in event.metadata["objects"]:
+                                        if obj_to_check_meta["objectId"] == parent:
+                                            if obj_to_check_meta["isOn"]:
+                                                self.stove_on = True
+                                                reward += 1.0
+                # Finally, give rewards for picking up egg, cracked egg, and cooked cracked egg.
+                if object_meta["objectType"] == "Egg":
+                    if object_meta["isPickedUp"] and not self.egg_picked_up:
+                        self.egg_picked_up = True
+                        reward += 1.0
+                if object_meta["objectType"] == "EggCracked":
+                    if not object_meta["isCooked"] and not self.egg_cracked_picked_up:
+                        self.egg_cracked_picked_up = True
+                        reward += 1.0
+                    elif object_meta["isCooked"] and not self.egg_cooked_picked_up:
+                        self.egg_cooked_picked_up
+                        reward += 10.0
+
+        return reward
 
     def process_obs(self, event, is_first: bool = False, done: bool = False) -> Dict:
         rgb_image: np.ndarray = event.frame
 
         h, w, _ = rgb_image.shape
 
-        if (h, w) != (self._image_size, self._image_size):
+        if (h, w) != self._image_size:
             image = Image.fromarray(rgb_image)
-            image = image.resize((self._image_size, self._image_size), resample=Image.BILINEAR)  # type: ignore
+            image = image.resize(self._image_size, resample=Image.BILINEAR)  # type: ignore
             image = np.asarray(image)  # type: ignore
         else:
             image = rgb_image  # type: ignore
 
         return {"image": image, "is_terminal": done, "is_first": is_first}
+
+
+if __name__ == "__main__":
+    env = CookEggEnv()
+    done = False
+    while not done:
+        action = np.zeros(env.action_space.n)
+        int_action = env.action_space.sample()
+        action[int_action] = 1
+        obs, reward, done, info = env.step(action)
+        if reward > -1.0:
+            print(f"Reward: {reward}")
