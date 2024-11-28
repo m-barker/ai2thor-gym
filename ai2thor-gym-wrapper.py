@@ -17,10 +17,11 @@ class AI2ThorBaseEnv(gym.Env):
         img_size: Tuple[int, int] = (64, 64),
         seed: int = 42,
         max_length: int = 5012,
+        headless: bool = True,
     ) -> None:
         super().__init__()
         self._image_size = img_size
-        self.controller = Controller(scene=scene, width=900, height=900)
+        self.controller = Controller(scene=scene, headless=headless)
         self.action_names = action_names
         self.seed(seed)
         self._step = 0
@@ -268,6 +269,7 @@ class CookEggEnv(AI2ThorBaseEnv):
         img_size: Tuple[int, int] = (64, 64),
         seed: int = 42,
         max_length: int = 5012,
+        headless: bool = True,
     ) -> None:
         ACTION_NAMES = [
             "PickupObject",
@@ -300,6 +302,7 @@ class CookEggEnv(AI2ThorBaseEnv):
             img_size=img_size,
             seed=seed,
             max_length=max_length,
+            headless=headless,
         )
 
         self.fridge_opened = False
