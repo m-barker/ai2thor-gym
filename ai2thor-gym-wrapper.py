@@ -7,6 +7,7 @@ from PIL import Image
 from gym import spaces
 from gym.utils import seeding
 from ai2thor.controller import Controller
+from ai2thor.platform import CloudRendering
 
 
 class AI2ThorBaseEnv(gym.Env):
@@ -21,7 +22,10 @@ class AI2ThorBaseEnv(gym.Env):
     ) -> None:
         super().__init__()
         self._image_size = img_size
-        self.controller = Controller(scene=scene, headless=headless)
+        platform = None
+        if headless:
+            platform = CloudRendering
+        self.controller = Controller(scene=scene, platform=platform)
         self.action_names = action_names
         self.seed(seed)
         self._step = 0
