@@ -135,6 +135,8 @@ class AI2ThorBaseEnv(gym.Env):
         Returns:
             Tuple[Dict, Dict]: obs, info.
         """
+        self._step = 0
+        self._done = False
         event = self.controller.reset()
         self.update_agent_position(event.metadata)
         self.set_closest_objects(event.metadata)
@@ -217,7 +219,7 @@ class AI2ThorBaseEnv(gym.Env):
         info = self.filter_metadata(event.metadata)
 
         self._step += 1
-        self._done = done or (self.max_length and self._step >= self.max_length)
+        self._done = done or bool((self.max_length and self._step >= self.max_length))
 
         return obs, reward, done, info
 
@@ -331,6 +333,23 @@ class CookEggEnv(AI2ThorBaseEnv):
                 if object_meta["isCooked"] and object_meta["isPickedUp"]:
                     return True
         return False
+
+    def reset(self) -> Tuple[Dict, Dict]:
+        self.fridge_opened = False
+        self.egg_picked_up = False
+        self.egg_cracked = False
+        self.microwave_opened = False
+        self.microwave_opened_finished = False
+        self.microwave_on = False
+        self.egg_cracked_picked_up = False
+        self.egg_cooked = False
+        self.egg_cooked_picked_up = False
+        self.egg_in_pan = False
+        self.egg_in_pot = False
+        self.pan_on_stove = False
+        self.pot_on_stove = False
+        self.stove_on = False
+        return super().reset()
 
     def compute_reward(self, event) -> float:
         reward = -1.0
