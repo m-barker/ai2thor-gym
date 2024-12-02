@@ -1,7 +1,13 @@
 # ai2thor-gym
 Gymnasiumm wrapper for ai2thor, you can test this by running `python3 ai2thor-gym-wrapper.py`, which will showcase an agent taking random actions in a kitchen environment, with rewards given for progress
 made towards the `CookEgg` task, in which the agent must find, crack, and cook an egg using the stove
-or the microwave. This uses the standard (older) gym API:
+or the microwave. 
+
+An example for an optimal policy for this task is seen in the GIF below:
+
+[](optimal_policy.gif)
+
+This uses the standard (older) gym API:
 
 ```python
 env = CookEggEnv()
