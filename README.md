@@ -5,7 +5,7 @@ or the microwave.
 
 An example for an optimal policy for this task is seen in the GIF below:
 
-[](./optimal_policy.gif)
+![](./optimal_policy.gif)
 
 This uses the standard (older) gym API:
 
